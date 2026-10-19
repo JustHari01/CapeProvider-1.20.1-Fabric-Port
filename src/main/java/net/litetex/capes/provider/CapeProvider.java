@@ -1,0 +1,98 @@
+package net.litetex.capes.provider;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.List;
+
+
+import com.mojang.authlib.GameProfile;
+
+import net.litetex.capes.provider.antifeature.AntiFeature;
+import net.minecraft.client.Minecraft;
+
+
+public interface CapeProvider
+{
+	double DEFAULT_RATE_LIMIT_REQ_PER_SEC = 20;
+	
+	int DEFAULT_MAX_DOWNLOAD_BYTES = 10_000_000; // 10 MB
+	
+	String id();
+	
+	String name();
+	
+	// null -> will not be resolved for current player
+	// empty -> will not create any client- or request-builder
+	// normal string -> will resolve normally
+	String getBaseUrl(GameProfile profile);
+	
+	default ResolvedTextureInfo resolveTexture(
+		final HttpClient.Builder clientBuilder,
+		final HttpRequest.Builder requestBuilder,
+		final GameProfile profile) throws IOException, InterruptedException
+	{
+		return resolveTextureDefault(clientBuilder, requestBuilder, this.textureResolverId());
+	}
+	
+	default String textureResolverId()
+	{
+		return null;
+	}
+	
+	default boolean hasChangeCapeUrl()
+	{
+		return false;
+	}
+	
+	default String changeCapeUrl(final Minecraft client)
+	{
+		return null;
+	}
+	
+	default String homepageUrl()
+	{
+		return null;
+	}
+	
+	default List<AntiFeature> antiFeatures()
+	{
+		return List.of();
+	}
+	
+	default double rateLimitedReqPerSec()
+	{
+		return DEFAULT_RATE_LIMIT_REQ_PER_SEC;
+	}
+	
+	default boolean canUseCache()
+	{
+		return false;
+	}
+	
+	static ResolvedTextureInfo.ByteArrayTextureInfo resolveTextureDefault(
+		final HttpClient.Builder clientBuilder,
+		final HttpRequest.Builder requestBuilder,
+		final String textureResolverId) throws IOException, InterruptedException
+	{
+		final HttpClient client = clientBuilder.build();
+		final HttpResponse<InputStream> response =
+			client.send(requestBuilder.GET().build(), HttpResponse.BodyHandlers.ofInputStream());
+		try(final InputStream body = response.body())
+		{
+			if(response.statusCode() / 100 != 2)
+			{
+				return null;
+			}
+			final byte[] imageBytes = body.readNBytes(DEFAULT_MAX_DOWNLOAD_BYTES + 1);
+			if(imageBytes.length > DEFAULT_MAX_DOWNLOAD_BYTES)
+			{
+				throw new IllegalStateException(
+					"Aborted download because it exceeded the maximum allowed size: " + DEFAULT_MAX_DOWNLOAD_BYTES);
+			}
+			return new ResolvedTextureInfo.ByteArrayTextureInfo(imageBytes, textureResolverId);
+		}
+	}
+}
